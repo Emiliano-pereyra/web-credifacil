@@ -1,0 +1,116 @@
+image: node:24
+
+definitions:
+  caches:
+    nextcache: ./.next/cache
+
+pipelines:
+  branches:
+    testing:
+      - step:
+          name: Build and Deploy to Testing
+          deployment: Test
+          size: 4x
+          caches:
+            - node
+            - nextcache
+          script:
+            - apt-get update && apt-get install -y zip
+            - export NODE_OPTIONS="--max-old-space-size=4096"
+
+            - echo "Checking required public env vars..."
+            - test -n "$NEXT_PUBLIC_RECAPTCHA_SITE_KEY" || (echo "Missing NEXT_PUBLIC_RECAPTCHA_SITE_KEY" && exit 1)
+            - test -n "$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" || (echo "Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" && exit 1)
+            - test -n "$NEXT_PUBLIC_ADPLUGG_ACCESS_CODE" || (echo "Missing NEXT_PUBLIC_ADPLUGG_ACCESS_CODE" && exit 1)
+
+            - echo "Installing NPM dependencies..."
+            - npm ci
+
+            - echo "Building Next.js standalone app..."
+            - npm run build
+
+            - echo "Preparing standalone package..."
+            - if [ -d public ]; then cp -r public .next/standalone/public; fi
+            - mkdir -p .next/standalone/.next
+            - cp -r .next/static .next/standalone/.next/static
+
+            - echo "Copying Procfile..."
+            - cp Procfile .next/standalone/Procfile
+
+            - echo "Copying .platform if exists..."
+            - if [ -d .platform ]; then mkdir -p .next/standalone/.platform && cp -r .platform/. .next/standalone/.platform/; fi
+
+            - echo "Setting hook permissions..."
+            - chmod +x .next/standalone/.platform/hooks/prebuild/*.sh || true
+            - chmod +x .next/standalone/.platform/hooks/predeploy/*.sh || true
+            - chmod +x .next/standalone/.platform/hooks/postdeploy/*.sh || true
+
+            - echo "Zipping package..."
+            - cd .next/standalone && zip -qr -1 ../../web-credifacil-next.zip .
+            - cd ../..
+
+            - echo "Deploying to Elastic Beanstalk testing..."
+            - pipe: atlassian/aws-elasticbeanstalk-deploy:1.4.1
+              variables:
+                AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+                AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+                AWS_DEFAULT_REGION: "us-east-1"
+                APPLICATION_NAME: "$APPLICATION_NAME"
+                ENVIRONMENT_NAME: "$ENVIRONMENT_NAME"
+                ZIP_FILE: "web-credifacil-next.zip"
+                S3_BUCKET: "onix-elasticbeanstalk-deployment"
+
+    main:
+      - step:
+          name: Build and Deploy to Production
+          deployment: Production
+          trigger: manual
+          size: 4x
+          caches:
+            - node
+            - nextcache
+          script:
+            - apt-get update && apt-get install -y zip
+            - export NODE_OPTIONS="--max-old-space-size=4096"
+
+            - echo "Checking required public env vars..."
+            - test -n "$NEXT_PUBLIC_RECAPTCHA_SITE_KEY" || (echo "Missing NEXT_PUBLIC_RECAPTCHA_SITE_KEY" && exit 1)
+            - test -n "$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" || (echo "Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" && exit 1)
+            - test -n "$NEXT_PUBLIC_ADPLUGG_ACCESS_CODE" || (echo "Missing NEXT_PUBLIC_ADPLUGG_ACCESS_CODE" && exit 1)
+
+            - echo "Installing NPM dependencies..."
+            - npm ci
+
+            - echo "Building Next.js standalone app..."
+            - npm run build
+
+            - echo "Preparing standalone package..."
+            - if [ -d public ]; then cp -r public .next/standalone/public; fi
+            - mkdir -p .next/standalone/.next
+            - cp -r .next/static .next/standalone/.next/static
+
+            - echo "Copying Procfile..."
+            - cp Procfile .next/standalone/Procfile
+
+            - echo "Copying .platform if exists..."
+            - if [ -d .platform ]; then mkdir -p .next/standalone/.platform && cp -r .platform/. .next/standalone/.platform/; fi
+
+            - echo "Setting hook permissions..."
+            - chmod +x .next/standalone/.platform/hooks/prebuild/*.sh || true
+            - chmod +x .next/standalone/.platform/hooks/predeploy/*.sh || true
+            - chmod +x .next/standalone/.platform/hooks/postdeploy/*.sh || true
+
+            - echo "Zipping package..."
+            - cd .next/standalone && zip -qr -1 ../../web-credifacil-next.zip .
+            - cd ../..
+
+            - echo "Deploying to Elastic Beanstalk production..."
+            - pipe: atlassian/aws-elasticbeanstalk-deploy:1.4.1
+              variables:
+                AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+                AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+                AWS_DEFAULT_REGION: "us-east-1"
+                APPLICATION_NAME: "$APPLICATION_NAME"
+                ENVIRONMENT_NAME: "$ENVIRONMENT_NAME"
+                ZIP_FILE: "web-credifacil-next.zip"
+                S3_BUCKET: "onix-elasticbeanstalk-deployment"
